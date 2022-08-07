@@ -2,15 +2,15 @@
 
 /************************* WiFi Access Point *********************************/
 
-#define WLAN_SSID       "babyBBB"
-#define WLAN_PASS       "yuan1234"
+#define WLAN_SSID       "YOUR-WIFI-SSID"
+#define WLAN_PASS       "YOUR-WIFI-PASSWORD"
 
 /************************* MQTT Server Setup *********************************/
 
-#define AIO_SERVER      "192.168.50.8"
+#define AIO_SERVER      "YOUR-MQTT-SERVER"
 #define AIO_SERVERPORT  1883
-#define AIO_USERNAME    "mqtt_broker"
-#define AIO_KEY         "12345"
+#define AIO_USERNAME    "YOUR-MQTT-USERNAME"
+#define AIO_KEY         "YOUR-MQTT-PASSWORD"
 
 /************************* MQTT Topic **************************************/
 
