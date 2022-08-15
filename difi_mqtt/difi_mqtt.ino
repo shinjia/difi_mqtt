@@ -1,4 +1,4 @@
-/* Shinjia  v1.0.4  2022/08/07 */
+/* Shinjia  v1.0.5  2022/08/15 */
 
 /************************* WiFi Access Point *********************************/
 
@@ -14,25 +14,25 @@
 
 /************************* MQTT Topic **************************************/
 
-#define MQTT_TOPIC_PHOTORESISTOR "user00/difi/photoresistor"
-#define MQTT_TOPIC_TEMPERATURE   "user00/difi/temperature"
-#define MQTT_TOPIC_HUMIDITY      "user00/difi/humidity"
-#define MQTT_TOPIC_BUTTON        "user00/difi/button"
-#define MQTT_TOPIC_RELAY         "user00/difi/relay"
-#define MQTT_TOPIC_LED           "user00/difi/led"
-#define MQTT_TOPIC_RGB           "user00/difi/rgb"
-#define MQTT_TOPIC_LIGHT         "user00/difi/light"
-#define MQTT_TOPIC_BUZZER        "user00/difi/buzzer"
-#define MQTT_TOPIC_QUERY         "user00/difi/query"
-#define MQTT_TOPIC_RESPONSE      "user00/difi/response"
+#define MQTT_TOPIC_LDRSENSOR   "user00/difi00/ldrsensor"
+#define MQTT_TOPIC_TEMPERATURE "user00/difi00/temperature"
+#define MQTT_TOPIC_HUMIDITY    "user00/difi00/humidity"
+#define MQTT_TOPIC_BUTTON      "user00/difi00/button"
+#define MQTT_TOPIC_RELAY       "user00/difi00/relay"
+#define MQTT_TOPIC_LED         "user00/difi00/led"
+#define MQTT_TOPIC_RGB         "user00/difi00/rgb"
+#define MQTT_TOPIC_LIGHT       "user00/difi00/light"
+#define MQTT_TOPIC_BUZZER      "user00/difi00/buzzer"
+#define MQTT_TOPIC_QUERY       "user00/difi00/query"
+#define MQTT_TOPIC_RESPONSE    "user00/difi00/response"
 
 // Time control (delay time)
-int time_delay_dht           = 60 * 1000;
-int time_delay_photoresistor =  2 * 1000;
-int time_delay_led           =  5 * 1000;
-int time_delay_rgb           =  5 * 1000;
-int time_delay_light         = 60 * 1000;
-int time_delay_button        = 20;  // for debounce
+int time_delay_dht       = 60 * 1000;
+int time_delay_ldrsensor =  2 * 1000;
+int time_delay_led       =  5 * 1000;
+int time_delay_rgb       =  5 * 1000;
+int time_delay_light     = 60 * 1000;
+int time_delay_button    = 20;  // for debounce
 
 // LED Pin
 #define PIN_LED   2
@@ -41,12 +41,12 @@ int time_delay_button        = 20;  // for debounce
 #define PIN_LED_B 14
 
 /** other pin **/
-#define PIN_PHOTORESISTOR A0
-#define PIN_DHT     5
-#define PIN_IRSW    4
-#define PIN_RELAY  16
-#define PIN_BUTTON  0
-#define PIN_BUZZER 15
+#define PIN_LDRSENSOR A0
+#define PIN_DHT        5
+#define PIN_IRSW       4
+#define PIN_RELAY     16
+#define PIN_BUTTON     0
+#define PIN_BUZZER    15
 
 
 /*************************** Sketch Code ************************************/
@@ -62,11 +62,11 @@ Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO
 
 /****************************** Feeds ***************************************/
 
-Adafruit_MQTT_Publish sensor_photoresistor = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_PHOTORESISTOR);
-Adafruit_MQTT_Publish sensor_temp = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_TEMPERATURE);
-Adafruit_MQTT_Publish sensor_humi = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_HUMIDITY);
-Adafruit_MQTT_Publish sensor_button = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_BUTTON);
-Adafruit_MQTT_Publish sensor_response = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_RESPONSE);
+Adafruit_MQTT_Publish sensor_ldrsensor   = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_LDRSENSOR);
+Adafruit_MQTT_Publish sensor_temperature = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_TEMPERATURE);
+Adafruit_MQTT_Publish sensor_humidity    = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_HUMIDITY);
+Adafruit_MQTT_Publish sensor_button      = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_BUTTON);
+Adafruit_MQTT_Publish sensor_response    = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_RESPONSE);
 
 // Setup a feed
 Adafruit_MQTT_Subscribe sub_relay  = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_RELAY, MQTT_QOS_1);
@@ -97,7 +97,7 @@ int light_param2;
 
 // time control
 unsigned long time_next_dht;
-unsigned long time_next_photoresistor;
+unsigned long time_next_ldrsensor;
 unsigned long time_next_button;
 unsigned long time_next_led;
 unsigned long time_next_rgb;
@@ -132,7 +132,7 @@ void setup() {
 
   dht.begin();
   
-  time_next_photoresistor = millis();
+  time_next_ldrsensor = millis();
   time_next_dht    = millis();
   time_next_dht    = millis();
   time_next_led    = millis();
@@ -174,8 +174,8 @@ void loop()
 {
   char *payload;
     
-  // photoresistor
-  int photor = analogRead(PIN_PHOTORESISTOR);
+  // ldrsensor
+  int photor = analogRead(PIN_LDRSENSOR);
 
   // dht
   float h = dht.readHumidity();
@@ -281,10 +281,10 @@ void loop()
     }
   }
 
-  // MQTT Pub : photoresistor
-  if(millis() > time_next_photoresistor) {
-    time_next_photoresistor = millis() + time_delay_photoresistor;
-    sensor_photoresistor.publish(photor);
+  // MQTT Pub : ldrsensor
+  if(millis() > time_next_ldrsensor) {
+    time_next_ldrsensor = millis() + time_delay_ldrsensor;
+    sensor_ldrsensor.publish(photor);
   }
 
   // MQTT Pub : dht
@@ -295,8 +295,8 @@ void loop()
     Serial.print(h);
     Serial.println();
     time_next_dht = millis() + time_delay_dht;
-    sensor_temp.publish(t);
-    sensor_humi.publish(h);
+    sensor_temperature.publish(t);
+    sensor_humidity.publish(h);
   }
 
   // MQTT Pub : button
@@ -522,10 +522,10 @@ String query_do(char *p) {
   
   if(strcmp(p, "time")==0) {
     // get time
-    int ms = millis() / 1000;
-    int hh = ms / 360;
-    int mm = (ms-hh*60) / 60;
-    int ss = (ms-hh*360+mm*60) % 60;
+    int ts = millis() / 1000;
+    int hh = ts / 3600;
+    int mm = (ts % 3600) / 60;
+    int ss = (ts % 3600) % 60;
     ret = "";
     if(hh<10) {ret += "0";}
     ret += String(hh) + ":";
@@ -550,6 +550,7 @@ String query_do(char *p) {
 
   return ret;
 }
+
 
 void light_run() {
 
