@@ -1,4 +1,4 @@
-/* Shinjia  v1.0.5  2022/08/15 */
+/* Shinjia  v1.0.9  2022/08/18 */
 
 /************************* WiFi Access Point *********************************/
 
@@ -18,11 +18,14 @@
 #define MQTT_TOPIC_TEMPERATURE "user00/difi00/temperature"
 #define MQTT_TOPIC_HUMIDITY    "user00/difi00/humidity"
 #define MQTT_TOPIC_BUTTON      "user00/difi00/button"
+#define MQTT_TOPIC_IRSW        "user00/difi00/irsw"
+#define MQTT_TOPIC_BUZZER      "user00/difi00/buzzer"
 #define MQTT_TOPIC_RELAY       "user00/difi00/relay"
 #define MQTT_TOPIC_LED         "user00/difi00/led"
 #define MQTT_TOPIC_RGB         "user00/difi00/rgb"
+#define MQTT_TOPIC_COUNTER     "user00/difi00/counter"
+#define MQTT_TOPIC_COUNTER_SET "user00/difi00/counter/set"
 #define MQTT_TOPIC_LIGHT       "user00/difi00/light"
-#define MQTT_TOPIC_BUZZER      "user00/difi00/buzzer"
 #define MQTT_TOPIC_QUERY       "user00/difi00/query"
 #define MQTT_TOPIC_RESPONSE    "user00/difi00/response"
 
@@ -33,6 +36,7 @@ int time_delay_led       =  5 * 1000;
 int time_delay_rgb       =  5 * 1000;
 int time_delay_light     = 60 * 1000;
 int time_delay_button    = 20;  // for debounce
+int time_delay_irsw      = 2000; // delay when state change
 
 // LED Pin
 #define PIN_LED   2
@@ -66,21 +70,34 @@ Adafruit_MQTT_Publish sensor_ldrsensor   = Adafruit_MQTT_Publish(&mqtt, MQTT_TOP
 Adafruit_MQTT_Publish sensor_temperature = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_TEMPERATURE);
 Adafruit_MQTT_Publish sensor_humidity    = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_HUMIDITY);
 Adafruit_MQTT_Publish sensor_button      = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_BUTTON);
+Adafruit_MQTT_Publish sensor_irsw        = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_IRSW);
 Adafruit_MQTT_Publish sensor_response    = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_RESPONSE);
+Adafruit_MQTT_Publish sensor_counter     = Adafruit_MQTT_Publish(&mqtt, MQTT_TOPIC_COUNTER);
 
 // Setup a feed
-Adafruit_MQTT_Subscribe sub_relay  = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_RELAY, MQTT_QOS_1);
-Adafruit_MQTT_Subscribe sub_led    = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_LED, MQTT_QOS_1);
-Adafruit_MQTT_Subscribe sub_rgb    = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_RGB, MQTT_QOS_1);
-Adafruit_MQTT_Subscribe sub_light  = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_LIGHT, MQTT_QOS_1);
-Adafruit_MQTT_Subscribe sub_buzzer = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_BUZZER, MQTT_QOS_1);
-Adafruit_MQTT_Subscribe sub_query  = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_QUERY, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_buzzer  = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_BUZZER, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_relay   = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_RELAY, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_led     = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_LED, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_rgb     = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_RGB, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_light   = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_LIGHT, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_query   = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_QUERY, MQTT_QOS_1);
+Adafruit_MQTT_Subscribe sub_counter_set = Adafruit_MQTT_Subscribe(&mqtt, MQTT_TOPIC_COUNTER_SET, MQTT_QOS_1);
+
+boolean is_mqtt_pub_button = false;
+boolean is_mqtt_pub_irsw = false;
+boolean is_mqtt_pub_counter = false;
 
 
 // Variables about button
 int buttonSwitchState = HIGH;  // button as switch
 int buttonState;
 int lastButtonState = HIGH;
+int counter_button = 0;
+
+// Variables about IRSW
+int irswSwitchState = HIGH;  // IRSW as switch
+int irswState;
+int lastIrswState = HIGH;
 
 /** DHT 11 **/
 #include "DHT.h"
@@ -99,6 +116,7 @@ int light_param2;
 unsigned long time_next_dht;
 unsigned long time_next_ldrsensor;
 unsigned long time_next_button;
+unsigned long time_next_irsw;
 unsigned long time_next_led;
 unsigned long time_next_rgb;
 unsigned long time_next_light;
@@ -129,6 +147,7 @@ void setup() {
   pinMode(PIN_BUZZER, OUTPUT);
   
   pinMode(PIN_BUTTON, INPUT);
+  pinMode(PIN_IRSW, INPUT);
 
   dht.begin();
   
@@ -161,11 +180,12 @@ void setup() {
   sub_led.setCallback(sub_led_callback);
   
   // Setup MQTT subscription for time feed.
+  mqtt.subscribe(&sub_buzzer);
   mqtt.subscribe(&sub_relay);
   mqtt.subscribe(&sub_led);
   mqtt.subscribe(&sub_rgb);
+  mqtt.subscribe(&sub_counter_set);
   mqtt.subscribe(&sub_light);
-  mqtt.subscribe(&sub_buzzer);
   mqtt.subscribe(&sub_query);
 }
 
@@ -188,11 +208,11 @@ void loop()
     t = 0;
     h = 0; 
   }
-  
+
 
   // Button (notice: Debounce)
   int reading = digitalRead(PIN_BUTTON);
-  boolean is_mqtt_pub_button = false;
+  is_mqtt_pub_button = false;
   if (reading != lastButtonState) {
     time_next_button = millis() + time_delay_button;
   }
@@ -204,16 +224,24 @@ void loop()
       // only toggle the LED if the new button state is HIGH
       if (buttonState == HIGH) {
         buttonSwitchState = !buttonSwitchState;
+        counter_button++;
         is_mqtt_pub_button = true;
-        Serial.print("mqtt pub button...");
-        Serial.print(buttonSwitchState);
-        Serial.println();
       }
     }
   }
   lastButtonState = reading;
 
   
+  // IRSW
+  irswState = !digitalRead(PIN_IRSW);  // IRSW inverse
+  is_mqtt_pub_irsw = false;
+  if (irswState != lastIrswState) {
+     irswSwitchState = !irswSwitchState;
+     time_next_irsw = millis() + time_delay_irsw;
+     is_mqtt_pub_irsw = true;
+  }
+  lastIrswState = irswState;
+
   // MQTT  
   MQTT_connect();
 
@@ -238,11 +266,22 @@ void loop()
       Serial.print(F("Got: (led)"));
       Serial.print(payload);
       Serial.println();
-      if(strcmp(payload, "1")==0) {
+      if(strcmp(payload, "ON")==0) {
         digitalWrite(PIN_LED, 0);  // builtin LED inverse
       }
-      else if(strcmp(payload, "0")==0) {
+      else if(strcmp(payload, "OFF")==0) {
         digitalWrite(PIN_LED, 1);  // builtin LED inverse
+      }
+      else {
+        if(payload[0]>='0' && payload[0]<='9') {  // check not digit
+          int value = (int)(payload[0]) - 48;
+          for(int i=0; i<value; i++) {  
+            delay(300);          
+            digitalWrite(PIN_LED, 0);  // builtin LED inverse
+            delay(100);
+            digitalWrite(PIN_LED, 1);  // builtin LED inverse
+          }
+        }
       }
       time_next_led = millis() + time_delay_led;
     }
@@ -266,6 +305,23 @@ void loop()
       time_next_light = millis() + time_delay_light;
       time_check_rgb = false;
       time_check_light = true;
+    }
+    else if (subscription == &sub_counter_set) {
+      payload = (char *)sub_counter_set.lastread;
+      Serial.print(F("Got (counter_set): "));
+      Serial.print(payload);
+      Serial.println();
+      /*
+      if(strcmp(payload, "0")==0) {
+        counter_button = 0;
+      }
+      */
+      String stringOne = String(payload);
+      counter_button = stringOne.toInt();
+      is_mqtt_pub_counter = true;
+      Serial.print("Set Counter to ");
+      Serial.print(counter_button);
+      Serial.println();
     }
     else if (subscription == &sub_buzzer) {
       payload = (char *)sub_buzzer.lastread;
@@ -313,8 +369,23 @@ void loop()
     }
     */
     sensor_button.publish(buttonSwitchState);
+    sensor_counter.publish(counter_button);
   }
 
+  if(is_mqtt_pub_counter) {
+    sensor_counter.publish(counter_button);  // when counter_reset, publish counter
+    is_mqtt_pub_counter = false;
+  }
+
+  // MQTT Pub : IRSW
+  if(is_mqtt_pub_irsw) {    
+    Serial.print("publish (IRSW):");
+    Serial.print(irswSwitchState);
+    Serial.println();
+    sensor_irsw.publish(irswSwitchState);
+  }
+
+  // Light show
   light_run();
 
   // check if rgb timeout
@@ -371,61 +442,39 @@ void MQTT_connect() {
 void rgb_do(char *p) {
   int len = strlen(p);
   int value = 0;
+  char ch;
 
-  if(!(p[0]>='0' && p[0]<='9')) {  // check not digit
-    if(strcmp(p, "R")==0) {
-      digitalWrite(PIN_LED_R, 1);
-    }
-    else if(strcmp(p, "G")==0) {
-      digitalWrite(PIN_LED_G, 1);
-    }
-    else if(strcmp(p, "B")==0) {
-      digitalWrite(PIN_LED_B, 1);
-    }
-    else if(strcmp(p, "r")==0) {
-      digitalWrite(PIN_LED_R, 0);
-    }
-    else if(strcmp(p, "g")==0) {
-      digitalWrite(PIN_LED_G, 0);
-    }      
-    else if(strcmp(p, "b")==0) {
-      digitalWrite(PIN_LED_B, 0);
-    }
-
-    if(len>=2) {
-      if(p[0]=='R' || p[0]=='r') {
-        value = 0;
-        for(int i=1; i<len; i++) {
-          value = value*10 + ((int)(p[i]) - 48);
-        }
-        analogWrite(PIN_LED_R, value);
+  if(len==7 && p[0]=='#') {
+    // #RRGGBB 格式
+    analogWrite(PIN_LED_R, 16*x2b(p[1])+x2b(p[2]));
+    analogWrite(PIN_LED_G, 16*x2b(p[3])+x2b(p[4]));
+    analogWrite(PIN_LED_B, 16*x2b(p[5])+x2b(p[6]));
+  }
+  else if(len>=2 && (p[1]>='0' && p[1]<='9')) {
+    // Rn, Gn, Bn 格式
+    if(p[0]=='R' || p[0]=='r') {
+      value = 0;
+      for(int i=1; i<len; i++) {
+        value = value*10 + ((int)(p[i]) - 48);
       }
-      else if(p[0]=='G' || p[0]=='g') {
-        value = 0;
-        for(int i=1; i<len; i++) {
-          value = value*10 + ((int)(p[i]) - 48);
-        }
-        analogWrite(PIN_LED_G, value);
-      }  
-      else if(p[0]=='B' || p[0]=='b') {
-        value = 0;
-        for(int i=1; i<len; i++) {
-          value = value*10 + ((int)(p[i]) - 48);
-        }
-        analogWrite(PIN_LED_B, value);
+      analogWrite(PIN_LED_R, value);
+    }
+    else if(p[0]=='G' || p[0]=='g') {
+      value = 0;
+      for(int i=1; i<len; i++) {
+        value = value*10 + ((int)(p[i]) - 48);
       }
-      else if(len==7 && p[0]=='#') {
-        analogWrite(PIN_LED_R, 16*x2b(p[1])+x2b(p[2]));
-        analogWrite(PIN_LED_G, 16*x2b(p[3])+x2b(p[4]));
-        analogWrite(PIN_LED_B, 16*x2b(p[5])+x2b(p[6]));
-        //Serial.print("# ");
-        //Serial.print(16*x2b(p[1])+x2b(p[2])); Serial.print(" ");
-        //Serial.print(16*x2b(p[3])+x2b(p[4])); Serial.print(" ");
-        //Serial.print(16*x2b(p[5])+x2b(p[6]));
+      analogWrite(PIN_LED_G, value);
+    }  
+    else if(p[0]=='B' || p[0]=='b') {
+      value = 0;
+      for(int i=1; i<len; i++) {
+        value = value*10 + ((int)(p[i]) - 48);
       }
+      analogWrite(PIN_LED_B, value);
     }
   }
-  else {
+  else if ((p[0]>='0' && p[0]<='9')) {
     // number
     value = 0;
     for(int i=0; i<len; i++) {
@@ -436,6 +485,37 @@ void rgb_do(char *p) {
     time_delay_rgb = value * 1000;
     Serial.print("delay...");
     Serial.println(value);
+  }
+  else {
+    // RGBrgb 格式
+    for(int i=0; i<len; i++) {
+      ch = p[i];
+      if(!(ch>='0' && ch<='9')) {  // check not digit
+        if(ch=='R') {
+          digitalWrite(PIN_LED_R, 1);
+        }
+        else if(ch=='G') {
+          digitalWrite(PIN_LED_G, 1);
+        }
+        else if(ch=='B') {
+          digitalWrite(PIN_LED_B, 1);
+        }
+        else if(ch=='r') {
+          digitalWrite(PIN_LED_R, 0);
+        }
+        else if(ch=='g') {
+          digitalWrite(PIN_LED_G, 0);
+        }
+        else if(ch=='b') {
+          digitalWrite(PIN_LED_B, 0);
+        }
+        else if(ch=='-') {
+          digitalWrite(PIN_LED_R, 0);
+          digitalWrite(PIN_LED_G, 0);
+          digitalWrite(PIN_LED_B, 0);
+        }
+      }
+    }
   }
 }
 
